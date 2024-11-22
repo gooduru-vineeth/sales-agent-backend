@@ -1,8 +1,8 @@
-import express from 'express';
-import http from 'http';
-import { WebSocketManager } from './websocket/WebSocketManager';
-import { connectDB } from './config/database';
-import dotenv from 'dotenv';
+import express from "express";
+import http from "http";
+import { WebSocketManager } from "./websocket/WebSocketManager";
+import { connectDB } from "./config/database";
+import dotenv from "dotenv";
 
 dotenv.config();
 
@@ -22,4 +22,4 @@ const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-}); 
+});

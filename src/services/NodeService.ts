@@ -1,12 +1,31 @@
-import { v4 as uuidv4 } from 'uuid';
+import { logger } from "../utils/logger";
+import * as AIService from "./AIService";
 
-export interface Node {
-  id: string;
-  description: string;
-  promptTemplate: string;
-  requiredFields: string[];
-  listOfNextPossibleNodes: string[];
-  customHandlerFunction?: (input: string, history: string[], context: Record<string, any>) => Promise<string>;
+export class Node {
+  constructor(
+    public id: string,
+    public description: string,
+    public promptTemplate: string,
+    public requiredFields: string[],
+    public listOfNextPossibleNodes: string[],
+    public customHandlerFunction?: (
+      input: string,
+      history: string[],
+      context: Record<string, any>
+    ) => Promise<string>
+  ) {}
+
+  getProcessedPromptTemplate(context: Record<string, any>): string {
+    try {
+      return this.promptTemplate.replace(
+        /\${(\w+)}/g,
+        (match, key) => context[key] || match
+      );
+    } catch (error) {
+      logger.error("Error processing prompt template", { error });
+      return this.promptTemplate;
+    }
+  }
 }
 
 export class NodeService {
@@ -23,13 +42,7 @@ export class NodeService {
     required: string[],
     nextNodes: string[]
   ): Node {
-    return {
-      id,
-      description,
-      promptTemplate: prompt,
-      requiredFields: required,
-      listOfNextPossibleNodes: nextNodes
-    };
+    return new Node(id, description, prompt, required, nextNodes);
   }
 
   private createCustomNode(
@@ -38,38 +51,115 @@ export class NodeService {
     prompt: string,
     required: string[],
     nextNodes: string[],
-    handler: (input: string, history: string[], context: Record<string, any>) => Promise<string>
+    handler: (
+      input: string,
+      history: string[],
+      context: Record<string, any>
+    ) => Promise<string>
   ): Node {
-    return {
-      id,
-      description,
-      promptTemplate: prompt,
-      requiredFields: required,
-      listOfNextPossibleNodes: nextNodes,
-      customHandlerFunction: handler
-    };
+    return new Node(id, description, prompt, required, nextNodes, handler);
   }
 
   private initializeNodes(): void {
     const nodes = new Map<string, Node>();
 
-    nodes.set('welcome', this.createBasicNode(
-      'welcome',
-      'Welcome message',
-      'Hello! I\'m your sales assistant. May I know your name?',
-      [],
-      ['collect_email', 'get_products', 'question_and_answer_node_for_product_details']
-    ));
+    nodes.set(
+      "welcome",
+      this.createBasicNode(
+        "welcome",
+        "Welcome message",
+        "Hello! I'm your sales assistant. May I know your name?",
+        [],
+        [
+          "collect_email",
+          "get_products",
+          "question_and_answer_node_for_product_details",
+        ]
+      )
+    );
 
-    nodes.set('collect_name', this.createBasicNode(
-      'collect_name',
-      'Collect name from user',
-      'Nice to meet you, {name}! What\'s your email address?',
-      [],
-      ['collect_email', 'get_products', 'question_and_answer_node_for_product_details']
-    ));
+    nodes.set(
+      "collect_name",
+      this.createBasicNode(
+        "collect_name",
+        "Collect name from user",
+        "Nice to meet you, ${name}! What's your email address?",
+        [],
+        [
+          "collect_email",
+          "get_products",
+          "question_and_answer_node_for_product_details",
+        ]
+      )
+    );
 
-    // Add other nodes...
+    nodes.set(
+      "collect_email",
+      this.createBasicNode(
+        "collect_email",
+        "Collect email from user",
+        "Nice to meet you, ${name}! What's your email address?",
+        ["name"],
+        ["get_products"]
+      )
+    );
+
+    nodes.set(
+      "get_products",
+      this.createBasicNode(
+        "get_products",
+        "Get product details from user",
+        "What product are you interested in today? We offer: \n- Product A\n- Product B\n- Product C",
+        ["name", "email"],
+        ["question_and_answer_node_for_product_details", "schedule_demo"]
+      )
+    );
+
+    nodes.set(
+      "question_and_answer_node_for_product_details",
+      this.createCustomNode(
+        "question_and_answer_node_for_product_details",
+        "Answers any questions about the product, using RAG",
+        "",
+        ["name", "email"],
+        [
+          "schedule_demo",
+          "end_conversation",
+          "question_and_answer_node_for_product_details",
+        ],
+        AIService.getProductDetails
+      )
+    );
+
+    nodes.set(
+      "schedule_demo",
+      this.createCustomNode(
+        "schedule_demo",
+        "Schedule a demo with the user",
+        "Success Response: I've scheduled a demo for you. I'll send you a confirmation email shortly. \n" +
+          "Error Response: I'm sorry, I couldn't find your name or email in the conversation history. " +
+          "Please provide your name and email so I can schedule the demo.",
+        ["name", "email"],
+        [
+          "end_conversation",
+          "question_and_answer_node_for_product_details",
+          "collect_name",
+          "collect_email",
+        ],
+        AIService.scheduleDemo
+      )
+    );
+
+    nodes.set(
+      "end_conversation",
+      this.createBasicNode(
+        "end_conversation",
+        "End the conversation",
+        "Thank you for using our service. Have a great day!",
+        [],
+        []
+      )
+    );
 
     this.nodes = nodes;
   }
@@ -77,4 +167,8 @@ export class NodeService {
   getNode(nodeId: string): Node | undefined {
     return this.nodes.get(nodeId);
   }
-} 
+
+  getNodes(): Map<string, Node> {
+    return this.nodes;
+  }
+}
