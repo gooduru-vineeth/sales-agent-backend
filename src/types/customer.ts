@@ -1,9 +1,9 @@
 export interface Customer {
-  id: string;
+  sessionId: string;
   name: string;
   email: string;
-  product_choice: string;
-  conversation_history: ConversationEntry[];
+  productChoice?: string;
+  conversationHistory?: ConversationEntry[];
 }
 
 export interface ConversationEntry {
@@ -12,8 +12,8 @@ export interface ConversationEntry {
 }
 
 export interface Session {
-  session_id: string;
+  sessionId: string;
   context: Record<string, any>;
-  current_node_id: string;
-  conversation_history: string[];
-} 
+  currentNodeId: string;
+  conversationHistory: string[];
+}

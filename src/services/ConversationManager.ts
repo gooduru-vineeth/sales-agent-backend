@@ -1,28 +1,20 @@
-import { Session } from "../types/customer";
-import { Node, NodeService } from "./NodeService";
-import CustomerModel from "../models/Customer";
-import { logger } from "../utils/logger";
-import * as AIService from "./AIService";
+import { Session } from '../types/customer';
+import { NodeService } from './NodeService';
+import { logger } from '../utils/logger';
+import * as AIService from './AIService';
+import * as MessageRepository from '../repositories/Message';
+import * as CustomerRepository from '../repositories/Customer';
+import { MessageType } from '../types/message';
 export class ConversationManager {
   private nodeService: NodeService;
-  private currentSession!: Session;
 
   constructor() {
     this.nodeService = new NodeService();
-    this.initializeSession();
-    logger.info("ConversationManager initialized");
+    logger.info('ConversationManager initialized');
   }
 
-  private initializeSession() {
-    this.currentSession = {
-      session_id: crypto.randomUUID(),
-      context: {},
-      current_node_id: "welcome",
-      conversation_history: [],
-    };
-  }
   async getWelcomeNode() {
-    return this.nodeService.getNode("welcome");
+    return this.nodeService.getNode('welcome');
   }
   async processUserInput(
     userInput: string,
@@ -31,74 +23,68 @@ export class ConversationManager {
     messageToUser: string;
     updatedSession: Session;
   }> {
-    const currentNode = this.nodeService.getNode(
-      currentSession.current_node_id
-    );
+    const currentNode = this.nodeService.getNode(currentSession.currentNodeId);
 
     if (!currentNode) {
-      throw new Error("Invalid node");
+      throw new Error('Invalid node');
     }
-    logger.info("session before processing user input", {
-      sessionId: currentSession.session_id,
+    logger.info('session before processing user input', {
+      sessionId: currentSession.sessionId,
       session: currentSession,
       currentNode: currentNode,
     });
     // Process input through AI service
     const analysis = await AIService.analyzeInput(
       userInput,
-      currentSession.conversation_history,
+      currentSession.conversationHistory,
       currentSession.context,
       currentNode.listOfNextPossibleNodes
     );
-    logger.info("Analysis from AI service", { analysis });
+    logger.info('Analysis from AI service', { analysis });
 
     // Update session with new context and node
     const updatedSession = {
       ...currentSession,
       context: { ...currentSession.context, ...analysis.userInputs },
-      current_node_id: analysis.nextNodeId,
-      conversation_history: [
-        ...currentSession.conversation_history,
+      currentNodeId: analysis.nextNodeId,
+      conversationHistory: [
+        ...currentSession.conversationHistory,
         `User: ${userInput}`,
-        `AI: ${analysis.suggestedResponse}`,
+        `AI: ${analysis.suggestedResponse ?? ''}`,
       ],
     };
-    logger.info("Updated session after processing user input", {
-      sessionId: updatedSession.session_id,
-      currentNode: updatedSession.current_node_id,
+    logger.info('Updated session after processing user input', {
+      sessionId: updatedSession.sessionId,
+      currentNode: updatedSession.currentNodeId,
       updatedSession,
     });
 
     let messageToUser = analysis.suggestedResponse;
-    const updatedNode = this.nodeService.getNode(
-      updatedSession.current_node_id
-    );
+    const updatedNode = this.nodeService.getNode(updatedSession.currentNodeId);
     // Handle custom node functions if present
     if (updatedNode?.customHandlerFunction) {
       try {
-        logger.info("Executing custom node function", {
+        logger.info('Executing custom node function', {
           functionName: updatedNode.customHandlerFunction.name,
         });
         const result = await updatedNode.customHandlerFunction(
           userInput,
-          updatedSession.conversation_history,
-          updatedSession.context
+          updatedSession.conversationHistory,
+          updatedSession.context,
+          updatedSession
         );
-        logger.info("Custom node function executed successfully", {
+        logger.info('Custom node function executed successfully', {
           result,
         });
         messageToUser = analysis.suggestedResponse || result;
       } catch (error) {
-        logger.error("Error executing custom node function", {
-          error: error instanceof Error ? error.message : "Unknown error",
+        logger.error('Error executing custom node function', {
+          error: error instanceof Error ? error.message : 'Unknown error',
         });
         messageToUser =
           "I'm sorry, I encountered an issue. Could you please try again?";
       }
     }
-
-    // Try to save customer if we have all required info
-    await this.saveCustomerIfComplete(currentSession);
 
     return {
       messageToUser,
@@ -107,43 +93,33 @@ export class ConversationManager {
   }
 
   private async saveCustomerIfComplete(session: Session): Promise<void> {
-    const { name, email, product_choice } = session.context;
+    const { name, email } = session.context;
 
-    if (name && email && product_choice) {
+    if (name && email) {
       try {
-        await CustomerModel.findOneAndUpdate(
-          { email },
-          {
-            name,
-            email,
-            product_choice,
-            conversation_history: [
-              {
-                timestamp: new Date().toISOString(),
-                context: session.context,
-              },
-            ],
-          },
-          { upsert: true }
-        );
-        logger.info("Customer information saved", {
-          sessionId: session.session_id,
+        const customer = await CustomerRepository.saveCustomer({
+          sessionId: session.sessionId,
+          name,
           email,
+          productChoice: session?.context?.productChoice,
+        });
+        logger.info('Customer information saved', {
+          sessionId: session.sessionId,
+          customer,
         });
       } catch (error) {
-        logger.error("Error saving customer information", {
-          sessionId: session.session_id,
+        logger.error('Error saving customer information', {
+          sessionId: session.sessionId,
           email,
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: error instanceof Error ? error.message : 'Unknown error',
         });
         throw error;
       }
     } else {
-      logger.debug("Skipping customer save - incomplete information", {
-        sessionId: session.session_id,
+      logger.debug('Skipping customer save - incomplete information', {
+        sessionId: session.sessionId,
         hasName: !!name,
         hasEmail: !!email,
-        hasProductChoice: !!product_choice,
       });
     }
   }
@@ -153,6 +129,20 @@ export class ConversationManager {
       userInput,
       session
     );
+
+    Promise.all([
+      MessageRepository.createMessage({
+        sessionId: updatedSession.sessionId,
+        message: userInput,
+        type: MessageType.USER,
+      }),
+      MessageRepository.createMessage({
+        sessionId: updatedSession.sessionId,
+        message: messageToUser,
+        type: MessageType.AI,
+      }),
+      this.saveCustomerIfComplete(updatedSession),
+    ]);
 
     return {
       response: messageToUser,

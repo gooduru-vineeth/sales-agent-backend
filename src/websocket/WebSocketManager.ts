@@ -1,9 +1,10 @@
-import { Server as SocketIOServer } from "socket.io";
-import { v4 as uuidv4 } from "uuid";
-import { Session } from "../types/customer";
-import { ConversationManager } from "../services/ConversationManager";
-import { logger } from "../utils/logger";
-import * as AIService from "../services/AIService";
+import { Server as SocketIOServer } from 'socket.io';
+import { v4 as uuidv4 } from 'uuid';
+import { Session } from '../types/customer';
+import { ConversationManager } from '../services/ConversationManager';
+import { logger } from '../utils/logger';
+import { MessageType } from '../types/message';
+import * as MessageRepository from '../repositories/Message';
 
 export class WebSocketManager {
   private io: SocketIOServer;
@@ -13,8 +14,8 @@ export class WebSocketManager {
   constructor(server: any) {
     this.io = new SocketIOServer(server, {
       cors: {
-        origin: "*",
-        methods: ["GET", "POST"],
+        origin: '*',
+        methods: ['GET', 'POST'],
       },
     });
     this.sessions = new Map();
@@ -23,7 +24,7 @@ export class WebSocketManager {
   }
 
   private initialize() {
-    this.io.on("connection", async (socket) => {
+    this.io.on('connection', async (socket) => {
       const sessionId = uuidv4();
       logger.info(`New socket connection established`, {
         sessionId,
@@ -31,21 +32,26 @@ export class WebSocketManager {
       });
 
       const session: Session = {
-        session_id: sessionId,
+        sessionId: sessionId,
         context: {},
-        current_node_id: "welcome",
-        conversation_history: [],
+        currentNodeId: 'welcome',
+        conversationHistory: [],
       };
       const welcomeNode = await this.conversationManager.getWelcomeNode();
       const welcomeMessage = welcomeNode?.getProcessedPromptTemplate?.(
         session.context
       );
-      session.conversation_history.push(`AI: ${welcomeMessage}`);
+      session.conversationHistory.push(`AI: ${welcomeMessage}`);
+      await MessageRepository.createMessage({
+        sessionId,
+        message: welcomeMessage ?? '',
+        type: MessageType.AI,
+      });
 
       this.sessions.set(sessionId, session);
       logger.debug(`Session created`, { sessionId, session });
 
-      socket.on("message", async (data) => {
+      socket.on('message', async (data) => {
         logger.info(`Received message`, { sessionId, userInput: data });
 
         try {
@@ -53,7 +59,7 @@ export class WebSocketManager {
 
           if (!currentSession) {
             logger.error(`Session not found`, { sessionId });
-            throw new Error("Session not found");
+            throw new Error('Session not found');
           }
 
           const { response, updatedSession } =
@@ -62,8 +68,8 @@ export class WebSocketManager {
           this.sessions.set(sessionId, updatedSession);
           logger.debug(`Session updated`, { sessionId, updatedSession });
 
-          socket.emit("message", {
-            type: "message",
+          socket.emit('message', {
+            type: 'message',
             sessionId,
             content: response,
             timestamp: new Date().toISOString(),
@@ -72,29 +78,29 @@ export class WebSocketManager {
         } catch (error) {
           logger.error(`Error processing message`, {
             sessionId,
-            error: error instanceof Error ? error.message : "Unknown error",
+            error: error instanceof Error ? error.message : 'Unknown error',
             stack: error instanceof Error ? error.stack : undefined,
           });
-          socket.emit("error", {
-            type: "error",
-            message: "Error processing your message",
+          socket.emit('error', {
+            type: 'error',
+            message: 'Error processing your message',
           });
         }
       });
 
-      socket.on("disconnect", () => {
+      socket.on('disconnect', () => {
         logger.info(`Socket disconnected`, { sessionId, socketId: socket.id });
         this.sessions.delete(sessionId);
       });
 
-      socket.emit("connected", {
-        type: "connected",
+      socket.emit('connected', {
+        type: 'connected',
         sessionId,
-        message: "Connected to sales agent",
+        message: 'Connected to sales agent',
       });
       //  send welcome message
-      socket.emit("message", {
-        type: "message",
+      socket.emit('message', {
+        type: 'message',
         sessionId,
         content: welcomeMessage,
       });

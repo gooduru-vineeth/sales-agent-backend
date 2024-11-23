@@ -3,7 +3,8 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sales-agent';
+const MONGODB_URI =
+  process.env.MONGODB_URI || 'mongodb://localhost:27017/sales-agent';
 
 export const connectDB = async (): Promise<void> => {
   try {
@@ -13,4 +14,4 @@ export const connectDB = async (): Promise<void> => {
     console.error('MongoDB connection error:', error);
     process.exit(1);
   }
-}; 
+};

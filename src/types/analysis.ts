@@ -3,4 +3,4 @@ export interface InputAnalysis {
   userInputs: Record<string, any>;
   confidence: number;
   suggestedResponse: string;
-} 
+}

@@ -1,54 +1,58 @@
-import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
-import { AIProvider } from "../../types/ai-provider";
-import { InputAnalysis } from "../../types/analysis";
-import { logger } from "../../utils/logger";
-import { NodeService } from "../../services/NodeService";
-import Together from "together-ai";
-import { CompletionCreateParamsNonStreaming } from "together-ai/resources/chat/completions";
+import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
+import { AIProvider } from '../../types/ai-provider';
+import { InputAnalysis } from '../../types/analysis';
+import { logger } from '../../utils/logger';
+import { NodeService } from '../../services/NodeService';
+import Together from 'together-ai';
+import { CompletionCreateParamsNonStreaming } from 'together-ai/resources/chat/completions';
+import * as EventRepository from '../../repositories/Event';
+import config from '../../config/index';
+import { Session } from '../../types/customer';
+import { Event } from '../../types/events';
 
 // Change from instantiating immediately to lazy initialization
 let nodeService: NodeService;
 
 export class TogetherAIProvider implements AIProvider {
   private together: Together;
-  public model: string = "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo";
+  public model: string = 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo';
 
   // Schema for input analysis
   private analysisSchema = z.object({
     nextNodeId: z
       .string()
-      .describe("The next node id from the possible next nodes list"),
+      .describe('The next node id from the possible next nodes list'),
     userInputs: z
       .record(z.string())
-      .describe("Any identified user inputs from the user input"),
+      .describe('Any identified user inputs from the user input'),
     confidence: z
       .number()
       .min(0)
       .max(1)
-      .describe("Confidence score between 0 and 1"),
-    suggestedResponse: z.string().describe("Suggested response to the user"),
+      .describe('Confidence score between 0 and 1'),
+    suggestedResponse: z.string().describe('Suggested response to the user'),
   });
 
   // Schema for demo scheduling
   private demoToolSchema = {
-    name: "schedule_demo",
-    description: "Schedule a demo with the customer",
+    name: 'schedule_demo',
+    description: 'Schedule a demo with the customer',
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {
-        name: { type: "string", description: "Customer's name" },
-        email: { type: "string", description: "Customer's email" },
+        name: { type: 'string', description: "Customer's name" },
+        email: { type: 'string', description: "Customer's email" },
         productChoice: {
-          type: "string",
-          description: "Product selected by customer",
+          type: 'string',
+          description: 'Product selected by customer',
         },
         date: {
-          type: "string",
-          description: "Demo date (one day after today)",
+          type: 'string',
+          description: 'Demo date (one day after today)',
         },
       },
-      required: ["name", "email"],
+      required: ['name', 'email'],
     },
   };
 
@@ -62,8 +66,8 @@ export class TogetherAIProvider implements AIProvider {
       You have access to the following function:
 
       Use the function '${this.demoToolSchema.name}' to '${
-      this.demoToolSchema.description
-    }':
+        this.demoToolSchema.description
+      }':
       ${JSON.stringify(this.demoToolSchema)}
 
       Schedule a demo for tomorrow using the context provided. Format the date as YYYY-MM-DDTHH:MM:SS.
@@ -87,7 +91,7 @@ export class TogetherAIProvider implements AIProvider {
         arguments: JSON.parse(argsString),
       };
     } catch (error) {
-      logger.error("Error parsing function arguments", { error });
+      logger.error('Error parsing function arguments', { error });
       throw error;
     }
   }
@@ -98,7 +102,7 @@ export class TogetherAIProvider implements AIProvider {
     context: Record<string, any>,
     nextPossibleNodes: string[]
   ): Promise<InputAnalysis> {
-    logger.info("Analyzing input with Together AI", {
+    logger.info('Analyzing input with Together AI', {
       currentMessage,
       history,
       context,
@@ -106,17 +110,17 @@ export class TogetherAIProvider implements AIProvider {
     });
 
     try {
-      const jsonSchema = zodToJsonSchema(this.analysisSchema, "analysisSchema");
+      const jsonSchema = zodToJsonSchema(this.analysisSchema, 'analysisSchema');
       const data: CompletionCreateParamsNonStreaming = {
         model: this.model,
         messages: [
           {
-            role: "system",
+            role: 'system',
             content:
-              "You are a sales assistant. Analyze user input and determine next steps. Only respond in JSON format.",
+              'You are a sales assistant. Analyze user input and determine next steps. Only respond in JSON format.',
           },
           {
-            role: "user",
+            role: 'user',
             content: this.createAnalysisPrompt(
               currentMessage,
               history,
@@ -126,22 +130,22 @@ export class TogetherAIProvider implements AIProvider {
           },
         ],
         response_format: {
-          type: "json_object",
+          type: 'json_object',
           schema: jsonSchema as Record<string, string>,
         },
         temperature: 0.7,
       };
-      logger.info("Sending data to Together AI", { data });
+      logger.info('Sending data to Together AI', { data });
       const response = await this.together.chat.completions.create(data);
-      logger.info("Received response from Together AI", { response });
+      logger.info('Received response from Together AI', { response });
       if (response?.choices?.[0]?.message?.content) {
         return JSON.parse(response.choices[0].message.content);
       }
 
-      throw new Error("No response from Together AI service");
+      throw new Error('No response from Together AI service');
     } catch (error) {
-      logger.error("Error analyzing input with Together AI", {
-        error: error instanceof Error ? error.message : "Unknown error",
+      logger.error('Error analyzing input with Together AI', {
+        error: error instanceof Error ? error.message : 'Unknown error',
       });
       throw error;
     }
@@ -150,7 +154,8 @@ export class TogetherAIProvider implements AIProvider {
   async scheduleDemo(
     input: string,
     history: string[],
-    context: Record<string, any>
+    context: Record<string, any>,
+    session: Session
   ): Promise<string> {
     try {
       // First call to get function parameters
@@ -158,11 +163,11 @@ export class TogetherAIProvider implements AIProvider {
         model: this.model,
         messages: [
           {
-            role: "system",
+            role: 'system',
             content: this.createDemoToolPrompt(),
           },
           {
-            role: "user",
+            role: 'user',
             content: `Schedule a demo for customer with context: ${JSON.stringify(
               context
             )}`,
@@ -182,24 +187,33 @@ export class TogetherAIProvider implements AIProvider {
           }
         | undefined = response?.choices?.[0]?.message?.tool_calls?.[0].function;
       if (!functionCall) {
-        throw new Error("No response from Together AI");
+        throw new Error('No response from Together AI');
       }
 
       // Parse the function call
       const { functionName, arguments: args } =
         this.parseToolResponse(functionCall);
 
-      if (functionName === "schedule_demo") {
+      if (functionName === 'schedule_demo') {
         // Here you would actually schedule the demo with the parsed arguments
         // For now, we'll just return a confirmation message
-        logger.info("Demo scheduled successfully", { args, functionName });
+        logger.info('Demo scheduled successfully', { args, functionName });
+        await EventRepository.createEvent({
+          sessionId: session.sessionId,
+          name: config.eventTypes.scheduleDemo,
+          data: args,
+          metadata: {
+            history: session.conversationHistory,
+            currentNodeId: session.currentNodeId,
+          },
+        });
         return `Demo scheduled successfully for ${args.name} (${args.email}) on ${args.date}`;
       }
 
-      return "Failed to schedule demo - invalid function call";
+      return 'Failed to schedule demo - invalid function call';
     } catch (error) {
-      logger.error("Error scheduling demo with Together AI", {
-        error: error instanceof Error ? error.message : "Unknown error",
+      logger.error('Error scheduling demo with Together AI', {
+        error: error instanceof Error ? error.message : 'Unknown error',
       });
       throw error;
     }
@@ -215,15 +229,15 @@ export class TogetherAIProvider implements AIProvider {
         model: this.model,
         messages: [
           {
-            role: "system",
+            role: 'system',
             content:
-              "You are a product expert. Provide detailed information about products based on the context.",
+              'You are a product expert. Provide detailed information about products based on the context.',
           },
           {
-            role: "user",
+            role: 'user',
             content: `
               Context: ${JSON.stringify(context)}
-              History: ${history.join("\n")}
+              History: ${history.join('\n')}
               Question: ${question}
               
               Provide a detailed but concise response about the product.
@@ -235,11 +249,11 @@ export class TogetherAIProvider implements AIProvider {
 
       return (
         response?.choices?.[0]?.message?.content ||
-        "I apologize, but I cannot provide product details at the moment."
+        'I apologize, but I cannot provide product details at the moment.'
       );
     } catch (error) {
-      logger.error("Error getting product details from Together AI", {
-        error: error instanceof Error ? error.message : "Unknown error",
+      logger.error('Error getting product details from Together AI', {
+        error: error instanceof Error ? error.message : 'Unknown error',
       });
       throw error;
     }
@@ -261,7 +275,7 @@ export class TogetherAIProvider implements AIProvider {
         
         User Input: ${currentMessage}
 
-        History: ${history.join("\n")}
+        History: ${history.join('\n')}
         
         Possible next nodes: ${JSON.stringify(nodes)}
     `;

@@ -1,7 +1,8 @@
-import { InputAnalysis } from "../types/analysis";
-import { AIProvider } from "../types/ai-provider";
-import { logger } from "../utils/logger";
-import { TogetherAIProvider } from "../providers/together/index";
+import { InputAnalysis } from '../types/analysis';
+import { AIProvider } from '../types/ai-provider';
+import { logger } from '../utils/logger';
+import { TogetherAIProvider } from '../providers/together/index';
+import { Session } from '../types/customer';
 
 // Private state
 let provider: AIProvider | null = null;
@@ -35,7 +36,7 @@ export const analyzeInput = async (
   context: Record<string, any>,
   nextPossibleNodes: string[]
 ): Promise<InputAnalysis> => {
-  logger.info("analyzeInput called with:", {
+  logger.info('analyzeInput called with:', {
     currentMessage,
     history,
     context,
@@ -53,8 +54,8 @@ export const analyzeInput = async (
       nextPossibleNodes
     );
   } catch (error) {
-    logger.error("Error analyzing input", {
-      error: error instanceof Error ? error.message : "Unknown error",
+    logger.error('Error analyzing input', {
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
 
     return {
@@ -62,7 +63,7 @@ export const analyzeInput = async (
       userInputs: extractBasicUserInputs(currentMessage),
       confidence: 0.5,
       suggestedResponse:
-        "I apologize, but I encountered an issue. How can I help you?",
+        'I apologize, but I encountered an issue. How can I help you?',
     };
   }
 };
@@ -70,18 +71,21 @@ export const analyzeInput = async (
 export const scheduleDemo = async (
   input: string,
   history: string[],
-  context: Record<string, any>
+  context: Record<string, any>,
+  session: Session
 ): Promise<string> => {
   try {
     if (!provider) {
       initializeProvider();
     }
-    return await provider!.scheduleDemo(input, history, context);
+    return await provider!.scheduleDemo(input, history, context, session);
   } catch (error) {
-    logger.error("Error scheduling demo", {
-      error: error instanceof Error ? error.message : "Unknown error",
+    logger.error('Error scheduling demo', {
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
-    return "I apologize, but I encountered an issue scheduling the demo.";
+    throw new Error(
+      'I apologize, but I encountered an issue scheduling the demo.'
+    );
   }
 };
 
@@ -96,9 +100,9 @@ export const getProductDetails = async (
     }
     return await provider!.getProductDetails(question, history, context);
   } catch (error) {
-    logger.error("Error getting product details", {
-      error: error instanceof Error ? error.message : "Unknown error",
+    logger.error('Error getting product details', {
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
-    return "I apologize, but I encountered an issue retrieving product details.";
+    return 'I apologize, but I encountered an issue retrieving product details.';
   }
 };

@@ -1,5 +1,5 @@
-import { InputAnalysis } from "./analysis";
-
+import { InputAnalysis } from './analysis';
+import { Session } from './customer';
 export interface AIProvider {
   analyzeInput(
     currentMessage: string,
@@ -17,6 +17,7 @@ export interface AIProvider {
   scheduleDemo(
     input: string,
     history: string[],
-    context: Record<string, any>
+    context: Record<string, any>,
+    session: Session
   ): Promise<string>;
 }
