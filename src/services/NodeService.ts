@@ -139,9 +139,8 @@ export class NodeService {
       this.createCustomNode(
         'schedule_demo',
         'Schedule a demo with the user',
-        "Success Response: I've scheduled a demo for you. I'll send you a confirmation email shortly. \n" +
-          "Error Response: I'm sorry, I couldn't find your name or email in the conversation history. " +
-          'Please provide your name and email so I can schedule the demo.',
+        "success example:  I've scheduled a demo for you on {date} at {time}. I'll send you a confirmation email {email} shortly for the same. \n" +
+          'failure example: Please provide your name and email so I can schedule the demo.',
         ['name', 'email'],
         [
           'end_conversation',
