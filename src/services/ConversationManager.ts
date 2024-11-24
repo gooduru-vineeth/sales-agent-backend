@@ -133,20 +133,18 @@ export class ConversationManager {
       userInput,
       session
     );
-
-    Promise.all([
-      MessageRepository.createMessage({
-        sessionId: updatedSession.sessionId,
-        message: userInput,
-        type: MessageType.USER,
-      }),
-      MessageRepository.createMessage({
-        sessionId: updatedSession.sessionId,
-        message: messageToUser,
-        type: MessageType.AI,
-      }),
-      this.saveCustomerIfComplete(updatedSession),
-    ]);
+    //  not using Promise.all because we want to save the messages in order
+    await MessageRepository.createMessage({
+      sessionId: updatedSession.sessionId,
+      message: userInput,
+      type: MessageType.USER,
+    });
+    await MessageRepository.createMessage({
+      sessionId: updatedSession.sessionId,
+      message: messageToUser,
+      type: MessageType.AI,
+    });
+    await this.saveCustomerIfComplete(updatedSession);
 
     return {
       response: messageToUser,
