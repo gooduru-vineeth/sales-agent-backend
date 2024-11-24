@@ -32,9 +32,10 @@ export const demoToolSchema = {
       },
       date: {
         type: 'string',
-        description: 'Demo date (one day after today)',
+        description:
+          'It should be in the format of DD-MM-YYYY HH:MM:SS, if no date is mentioned schedule tomorrow',
       },
     },
-    required: ['name', 'email'],
+    required: ['name', 'email', 'productInterest', 'date'],
   },
 };

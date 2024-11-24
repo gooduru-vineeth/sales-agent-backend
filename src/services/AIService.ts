@@ -103,6 +103,8 @@ export const getProductDetails = async (
     logger.error('Error getting product details', {
       error: error instanceof Error ? error.message : 'Unknown error',
     });
-    return 'I apologize, but I encountered an issue retrieving product details.';
+    throw new Error(
+      'I apologize, but I encountered an issue retrieving product details.'
+    );
   }
 };

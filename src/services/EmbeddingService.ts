@@ -52,7 +52,9 @@ export class EmbeddingService {
   }
 
   async getIndexStats() {
-    return await this.pinecone.describeIndexStats();
+    const stats = await this.pinecone.describeIndexStats();
+    logger.info('Index stats', { stats });
+    return stats;
   }
 
   /**

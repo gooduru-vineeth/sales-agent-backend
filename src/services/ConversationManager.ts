@@ -5,6 +5,7 @@ import * as AIService from './AIService';
 import * as MessageRepository from '../repositories/Message';
 import * as CustomerRepository from '../repositories/Customer';
 import { MessageType } from '../types/message';
+
 export class ConversationManager {
   private nodeService: NodeService;
 
@@ -14,8 +15,121 @@ export class ConversationManager {
   }
 
   async getWelcomeNode() {
+    logger.debug('Fetching welcome node');
     return this.nodeService.getNode('welcome');
   }
+
+  private async analyzeUserInput(
+    userInput: string,
+    session: Session,
+    currentNode: any
+  ) {
+    logger.info('Analyzing user input', {
+      sessionId: session.sessionId,
+      currentNodeId: session.currentNodeId,
+    });
+
+    const analysis = await AIService.analyzeInput(
+      userInput,
+      session.conversationHistory,
+      session.context,
+      currentNode.listOfNextPossibleNodes
+    );
+
+    logger.info('AI analysis complete', {
+      sessionId: session.sessionId,
+      nextNodeId: analysis.nextNodeId,
+    });
+
+    return analysis;
+  }
+
+  private updateSessionWithAnalysis(
+    session: Session,
+    userInput: string,
+    analysis: any
+  ): Session {
+    const updatedSession = {
+      ...session,
+      context: { ...session.context, ...analysis.userInputs },
+      currentNodeId: analysis.nextNodeId,
+      conversationHistory: [
+        ...session.conversationHistory,
+        `User: ${userInput}`,
+        `AI: ${analysis.suggestedResponse ?? ''}`,
+      ],
+    };
+
+    logger.info('Session updated with analysis', {
+      sessionId: updatedSession.sessionId,
+      currentNodeId: updatedSession.currentNodeId,
+    });
+
+    return updatedSession;
+  }
+
+  private async executeCustomNodeHandler(
+    node: any,
+    userInput: string,
+    session: Session
+  ): Promise<string> {
+    if (!node?.customHandlerFunction) {
+      return '';
+    }
+
+    try {
+      logger.info('Executing custom node handler', {
+        sessionId: session.sessionId,
+        nodeId: node.id,
+        handlerName: node.customHandlerFunction.name,
+      });
+
+      const result = await node.customHandlerFunction(
+        userInput,
+        session.conversationHistory,
+        session.context,
+        session
+      );
+
+      logger.info('Custom handler executed successfully', {
+        sessionId: session.sessionId,
+        nodeId: node.id,
+      });
+
+      return result;
+    } catch (error) {
+      logger.error('Custom handler execution failed', {
+        sessionId: session.sessionId,
+        nodeId: node.id,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+
+      throw error;
+    }
+  }
+
+  private async saveMessages(
+    sessionId: string,
+    userInput: string,
+    aiResponse: string
+  ) {
+    logger.debug('Saving conversation messages', { sessionId });
+    //  not using Promise.all because we want to save the messages in order
+    await MessageRepository.createMessage({
+      sessionId,
+      message: userInput,
+      type: MessageType.USER,
+    });
+
+    await MessageRepository.createMessage({
+      sessionId,
+      message: aiResponse,
+      type: MessageType.AI,
+    });
+
+    logger.debug('Messages saved successfully', { sessionId });
+  }
+
   async processUserInput(
     userInput: string,
     currentSession: Session
@@ -26,68 +140,43 @@ export class ConversationManager {
     const currentNode = this.nodeService.getNode(currentSession.currentNodeId);
 
     if (!currentNode) {
+      logger.error('Invalid node', {
+        sessionId: currentSession.sessionId,
+        nodeId: currentSession.currentNodeId,
+      });
       throw new Error('Invalid node');
     }
-    logger.info('session before processing user input', {
-      sessionId: currentSession.sessionId,
-      session: currentSession,
-      currentNode: currentNode,
-    });
-    // Process input through AI service
-    const analysis = await AIService.analyzeInput(
+
+    const analysis = await this.analyzeUserInput(
       userInput,
-      currentSession.conversationHistory,
-      currentSession.context,
-      currentNode.listOfNextPossibleNodes
+      currentSession,
+      currentNode
     );
-    logger.info('Analysis from AI service', { analysis });
 
-    // Update session with new context and node
-    const updatedSession = {
-      ...currentSession,
-      context: { ...currentSession.context, ...analysis.userInputs },
-      currentNodeId: analysis.nextNodeId,
-      conversationHistory: [
-        ...currentSession.conversationHistory,
-        `User: ${userInput}`,
-        `AI: ${analysis.suggestedResponse ?? ''}`,
-      ],
-    };
-    logger.info('Updated session after processing user input', {
-      sessionId: updatedSession.sessionId,
-      currentNode: updatedSession.currentNodeId,
-      updatedSession,
-    });
+    const updatedSession = this.updateSessionWithAnalysis(
+      currentSession,
+      userInput,
+      analysis
+    );
 
-    let messageToUser = analysis.suggestedResponse;
     const updatedNode = this.nodeService.getNode(updatedSession.currentNodeId);
-    // Handle custom node functions if present
-    if (updatedNode?.customHandlerFunction) {
-      try {
-        logger.info('Executing custom node function', {
-          functionName: updatedNode.customHandlerFunction.name,
-        });
-        const result = await updatedNode.customHandlerFunction(
+    let messageToUser = analysis.suggestedResponse;
+
+    try {
+      if (updatedNode?.customHandlerFunction) {
+        const customResult = await this.executeCustomNodeHandler(
+          updatedNode,
           userInput,
-          updatedSession.conversationHistory,
-          updatedSession.context,
           updatedSession
         );
-        logger.info('Custom node function executed successfully', {
-          result,
-        });
-        if (updatedNode.consumeNodeResponse) {
-          messageToUser = result;
-        } else {
-          messageToUser = analysis.suggestedResponse || result;
-        }
-      } catch (error) {
-        logger.error('Error executing custom node function', {
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-        messageToUser =
-          "I'm sorry, I encountered an issue. Could you please try again?";
+
+        messageToUser = updatedNode.consumeNodeResponse
+          ? customResult
+          : analysis.suggestedResponse || customResult;
       }
+    } catch (error) {
+      messageToUser =
+        "I'm sorry, I encountered an issue. Could you please try again?";
     }
 
     return {
@@ -97,54 +186,60 @@ export class ConversationManager {
   }
 
   private async saveCustomerIfComplete(session: Session): Promise<void> {
-    const { name, email } = session.context;
+    const { name, email, productInterest } = session.context;
 
-    if (name && email) {
-      try {
-        const customer = await CustomerRepository.saveCustomer({
-          sessionId: session.sessionId,
-          name,
-          email,
-          productInterest: session?.context?.productInterest,
-        });
-        logger.info('Customer information saved', {
-          sessionId: session.sessionId,
-          customer,
-        });
-      } catch (error) {
-        logger.error('Error saving customer information', {
-          sessionId: session.sessionId,
-          email,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-        throw error;
-      }
-    } else {
+    if (!name || !email) {
       logger.debug('Skipping customer save - incomplete information', {
         sessionId: session.sessionId,
         hasName: !!name,
         hasEmail: !!email,
       });
+      return;
+    }
+
+    try {
+      const customer = await CustomerRepository.saveCustomer({
+        sessionId: session.sessionId,
+        name,
+        email,
+        productInterest,
+      });
+
+      logger.info('Customer information saved successfully', {
+        sessionId: session.sessionId,
+        customerId: customer?.name,
+        email: customer?.email,
+        productInterest: customer?.productInterest,
+      });
+    } catch (error) {
+      logger.error('Failed to save customer information', {
+        sessionId: session.sessionId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      throw error;
     }
   }
 
   async handleMessage(userInput: string, session: Session) {
+    logger.info('Processing new message', {
+      sessionId: session.sessionId,
+      currentNodeId: session.currentNodeId,
+    });
+
     const { messageToUser, updatedSession } = await this.processUserInput(
       userInput,
       session
     );
-    //  not using Promise.all because we want to save the messages in order
-    await MessageRepository.createMessage({
-      sessionId: updatedSession.sessionId,
-      message: userInput,
-      type: MessageType.USER,
+
+    await Promise.all([
+      this.saveMessages(session.sessionId, userInput, messageToUser),
+      this.saveCustomerIfComplete(updatedSession),
+    ]);
+
+    logger.info('Message handling complete', {
+      sessionId: session.sessionId,
+      currentNodeId: updatedSession.currentNodeId,
     });
-    await MessageRepository.createMessage({
-      sessionId: updatedSession.sessionId,
-      message: messageToUser,
-      type: MessageType.AI,
-    });
-    await this.saveCustomerIfComplete(updatedSession);
 
     return {
       response: messageToUser,
