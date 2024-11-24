@@ -76,7 +76,11 @@ export class ConversationManager {
         logger.info('Custom node function executed successfully', {
           result,
         });
-        messageToUser = analysis.suggestedResponse || result;
+        if (updatedNode.consumeNodeResponse) {
+          messageToUser = result;
+        } else {
+          messageToUser = analysis.suggestedResponse || result;
+        }
       } catch (error) {
         logger.error('Error executing custom node function', {
           error: error instanceof Error ? error.message : 'Unknown error',

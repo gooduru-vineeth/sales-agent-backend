@@ -9,6 +9,7 @@ export class Node {
     public promptTemplate: string,
     public requiredFields: string[],
     public listOfNextPossibleNodes: string[],
+    public consumeNodeResponse: boolean = false,
     public customHandlerFunction?: (
       input: string,
       history: string[],
@@ -53,6 +54,7 @@ export class NodeService {
     prompt: string,
     required: string[],
     nextNodes: string[],
+    consumeNodeResponse: boolean = false,
     handler: (
       input: string,
       history: string[],
@@ -60,7 +62,15 @@ export class NodeService {
       session: Session
     ) => Promise<string>
   ): Node {
-    return new Node(id, description, prompt, required, nextNodes, handler);
+    return new Node(
+      id,
+      description,
+      prompt,
+      required,
+      nextNodes,
+      consumeNodeResponse,
+      handler
+    );
   }
 
   private initializeNodes(): void {
@@ -112,7 +122,14 @@ export class NodeService {
       this.createBasicNode(
         'get_products',
         'Get product details from user',
-        'What product are you interested in today? We offer: \n- Product A\n- Product B\n- Product C',
+        `
+        What product are you interested in? We offer: \n
+        1. Amazon EC2 (Elastic Compute Cloud)
+        2. Amazon S3 (Simple Storage Service)
+        3. Amazon RDS (Relational Database Service)
+        4. Amazon DynamoDB
+        5. Amazon Lambda (Function as a Service)
+        `,
         ['name', 'email'],
         ['question_and_answer_node_for_product_details', 'schedule_demo']
       )
@@ -130,6 +147,7 @@ export class NodeService {
           'end_conversation',
           'question_and_answer_node_for_product_details',
         ],
+        true,
         AIService.getProductDetails
       )
     );
@@ -139,7 +157,7 @@ export class NodeService {
       this.createCustomNode(
         'schedule_demo',
         'Schedule a demo with the user',
-        "success example:  I've scheduled a demo for you on {date} at {time}. I'll send you a confirmation email {email} shortly for the same. \n" +
+        "success example:  I've scheduled a demo for you on {date} at {time}. I'll send you a confirmation email to {email} shortly for the same. \n" +
           'failure example: Please provide your name and email so I can schedule the demo.',
         ['name', 'email'],
         [
@@ -148,6 +166,7 @@ export class NodeService {
           'collect_name',
           'collect_email',
         ],
+        false,
         AIService.scheduleDemo
       )
     );

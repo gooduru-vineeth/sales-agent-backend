@@ -9,7 +9,7 @@ import { CompletionCreateParamsNonStreaming } from 'together-ai/resources/chat/c
 import * as EventRepository from '../../repositories/Event';
 import config from '../../config/index';
 import { Session } from '../../types/customer';
-import { Event } from '../../types/events';
+import { EmbeddingService } from '../../services/EmbeddingService';
 
 // Change from instantiating immediately to lazy initialization
 let nodeService: NodeService;
@@ -17,6 +17,8 @@ let nodeService: NodeService;
 export class TogetherAIProvider implements AIProvider {
   private together: Together;
   public model: string = 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo';
+  private embeddingService: EmbeddingService;
+  private initialized = false;
 
   // Schema for input analysis
   private analysisSchema = z.object({
@@ -58,6 +60,9 @@ export class TogetherAIProvider implements AIProvider {
 
   constructor(apiKey: string) {
     this.together = new Together({ apiKey });
+    this.embeddingService = new EmbeddingService();
+    this.embeddingService.initialize(config.pinecone.awsProductsIndexName);
+    this.initialized = true;
     nodeService = new NodeService();
   }
 
@@ -176,10 +181,6 @@ export class TogetherAIProvider implements AIProvider {
         temperature: 0,
       });
 
-      // sample response
-      // response?.choices?.[0]?.message.tool_calls[0].function
-      // {arguments: '{"name":"vineeth","email":"vineethtngl@gmai…uctChoice":"Product A","date":"2024-11-23"}', name: 'schedule_demo'}
-
       const functionCall:
         | {
             arguments: string;
@@ -225,26 +226,45 @@ export class TogetherAIProvider implements AIProvider {
     context: Record<string, any>
   ): Promise<string> {
     try {
+      const embeddings = await this.embeddingService.searchByText(question);
+      const processedEmbeddings = embeddings?.matches?.map(
+        (embedding: any) => embedding?.metadata
+      );
+      logger.info('Embeddings getProductDetails', { processedEmbeddings });
+
+      // Format the retrieved information
+      const relevantProductInfo = processedEmbeddings
+        ?.map(
+          (metadata: any) =>
+            `Product: ${metadata?.productName}
+            Category: ${metadata?.category}
+            Section: ${metadata?.section}
+            Details: ${metadata?.text}`
+        )
+        .join('\n\n');
+
       const response = await this.together.chat.completions.create({
         model: this.model,
         messages: [
           {
             role: 'system',
             content:
-              'You are a product expert. Provide detailed information about products based on the context.',
+              "You are an AWS product expert. Using ONLY the provided AWS product information, answer the customer's question. " +
+              "If the information is not in the provided context, acknowledge that you don't have that specific information. " +
+              'Keep responses focused and technical.',
           },
           {
             role: 'user',
             content: `
-              Context: ${JSON.stringify(context)}
-              History: ${history.join('\n')}
-              Question: ${question}
-              
-              Provide a detailed but concise response about the product.
-            `,
+              Retrieved AWS Product Information:
+              ${relevantProductInfo}
+
+              Customer Question: ${question}
+
+              Provide a clear and technical response based solely on the retrieved product information above.`,
           },
         ],
-        temperature: 0.7,
+        temperature: 0.3,
       });
 
       return (
