@@ -6,7 +6,7 @@ const CustomerSchema = new mongoose.Schema(
     sessionId: { type: String, required: true, unique: true },
     name: { type: String, required: true },
     email: { type: String, required: true },
-    productChoice: { type: String },
+    productInterest: { type: [String] },
   },
   { timestamps: true, collection: 'customers' }
 );

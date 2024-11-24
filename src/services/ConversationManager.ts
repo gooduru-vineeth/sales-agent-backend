@@ -105,7 +105,7 @@ export class ConversationManager {
           sessionId: session.sessionId,
           name,
           email,
-          productChoice: session?.context?.productChoice,
+          productInterest: session?.context?.productInterest,
         });
         logger.info('Customer information saved', {
           sessionId: session.sessionId,

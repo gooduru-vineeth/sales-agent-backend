@@ -123,7 +123,7 @@ export class NodeService {
         'get_products',
         'Get product details from user',
         `
-        What product are you interested in? We offer: \n
+        What product are you interested in? We offer: 
         1. Amazon EC2 (Elastic Compute Cloud)
         2. Amazon S3 (Simple Storage Service)
         3. Amazon RDS (Relational Database Service)

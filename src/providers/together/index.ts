@@ -7,6 +7,7 @@ import { NodeService } from '../../services/NodeService';
 import Together from 'together-ai';
 import { CompletionCreateParamsNonStreaming } from 'together-ai/resources/chat/completions';
 import * as EventRepository from '../../repositories/Event';
+import * as CustomerRepository from '../../repositories/Customer';
 import config from '../../config/index';
 import { Session } from '../../types/customer';
 import { EmbeddingService } from '../../services/EmbeddingService';
@@ -45,9 +46,10 @@ export class TogetherAIProvider implements AIProvider {
       properties: {
         name: { type: 'string', description: "Customer's name" },
         email: { type: 'string', description: "Customer's email" },
-        productChoice: {
-          type: 'string',
-          description: 'Product selected by customer',
+        productInterest: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Products user is interested in or has asked about',
         },
         date: {
           type: 'string',
@@ -138,7 +140,7 @@ export class TogetherAIProvider implements AIProvider {
           type: 'json_object',
           schema: jsonSchema as Record<string, string>,
         },
-        temperature: 0.7,
+        temperature: 0.3,
       };
       logger.info('Sending data to Together AI', { data });
       const response = await this.together.chat.completions.create(data);
@@ -175,7 +177,11 @@ export class TogetherAIProvider implements AIProvider {
             role: 'user',
             content: `Schedule a demo for customer with context: ${JSON.stringify(
               context
-            )}`,
+            )}
+            history: ${history.join('\n')}
+            user input: ${input}
+            
+            `,
           },
         ],
         temperature: 0,
@@ -196,25 +202,29 @@ export class TogetherAIProvider implements AIProvider {
         this.parseToolResponse(functionCall);
 
       if (functionName === 'schedule_demo') {
-        // Here you would actually schedule the demo with the parsed arguments
-        // For now, we'll just return a confirmation message
         logger.info('Demo scheduled successfully', { args, functionName });
-        await EventRepository.createEvent({
-          sessionId: session.sessionId,
-          name: config.eventTypes.scheduleDemo,
-          data: args,
-          metadata: {
-            history: session.conversationHistory,
-            currentNodeId: session.currentNodeId,
-          },
-        });
+        await Promise.all([
+          EventRepository.createEvent({
+            sessionId: session.sessionId,
+            name: config.eventTypes.scheduleDemo,
+            data: args,
+            metadata: {
+              history: session.conversationHistory,
+              currentNodeId: session.currentNodeId,
+            },
+          }),
+          CustomerRepository.updateCustomer(session.sessionId, {
+            ...args,
+          }),
+        ]);
         return `Demo scheduled successfully for ${args.name} (${args.email}) on ${args.date}`;
       }
 
-      return 'Failed to schedule demo - invalid function call';
+      throw new Error('Failed to schedule demo - invalid function call');
     } catch (error) {
       logger.error('Error scheduling demo with Together AI', {
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error:
+          error instanceof Error ? error.message : error || 'Unknown error',
       });
       throw error;
     }

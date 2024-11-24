@@ -25,3 +25,12 @@ export const saveCustomer = async (
     }
   );
 };
+
+export const updateCustomer = async (
+  sessionId: string,
+  customer: CustomerType
+): Promise<CustomerType | null> => {
+  return await Customer.findOneAndUpdate({ sessionId }, customer, {
+    new: true,
+  });
+};

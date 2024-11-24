@@ -2,7 +2,7 @@ export interface Customer {
   sessionId: string;
   name: string;
   email: string;
-  productChoice?: string;
+  productInterest?: string[];
   conversationHistory?: ConversationEntry[];
 }
 
